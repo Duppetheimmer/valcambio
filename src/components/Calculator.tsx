@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { DollarSign, Euro, RefreshCw, Copy, Check, Info } from "lucide-react";
+import { DollarSign, Euro, RefreshCw, Copy, Check, Info, Lock, Unlock } from "lucide-react";
 import { RatesData, RateType } from "../types";
 
 interface CalculatorProps {
@@ -12,6 +12,7 @@ export default function Calculator({ rates }: CalculatorProps) {
   const [foreignVal, setForeignVal] = useState<string>("100");
   const [vesVal, setVesVal] = useState<string>("");
   const [lastEdited, setLastEdited] = useState<"foreign" | "ves">("foreign");
+  const [lockVes, setLockVes] = useState<boolean>(false);
 
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
@@ -22,7 +23,11 @@ export default function Calculator({ rates }: CalculatorProps) {
 
   // Recalculate whenever currency, rate type, or inputs change
   useEffect(() => {
-    if (lastEdited === "foreign" && foreignVal !== "") {
+    if (lockVes && vesVal !== "") {
+      const num = parseFloat(vesVal) || 0;
+      const res = num / currentRate;
+      setForeignVal(res > 0 ? res.toFixed(2) : "");
+    } else if (lastEdited === "foreign" && foreignVal !== "") {
       const num = parseFloat(foreignVal) || 0;
       const res = num * currentRate;
       setVesVal(res > 0 ? res.toFixed(2) : "");
@@ -36,7 +41,7 @@ export default function Calculator({ rates }: CalculatorProps) {
         setForeignVal("");
       }
     }
-  }, [selectedCurrency, rateType, currentRate]);
+  }, [selectedCurrency, rateType, currentRate, lockVes]);
 
   // Handle manual input changes
   const handleForeignChange = (val: string) => {
@@ -80,6 +85,7 @@ export default function Calculator({ rates }: CalculatorProps) {
     setForeignVal("");
     setVesVal("");
     setLastEdited("foreign");
+    setLockVes(false);
   };
 
   const copyToClipboard = (text: string, fieldName: string) => {
@@ -88,6 +94,14 @@ export default function Calculator({ rates }: CalculatorProps) {
     setCopiedField(fieldName);
     setTimeout(() => setCopiedField(null), 1500);
   };
+
+  const valVesNum = parseFloat(vesVal) || 0;
+  const bcvRateForActive = selectedCurrency === "usd" ? rates.usd_bcv : rates.eur_bcv;
+  const parallelRateForActive = selectedCurrency === "usd" ? rates.usd_parallel : rates.eur_parallel;
+
+  const equivalentBcv = valVesNum > 0 ? (valVesNum / bcvRateForActive) : 0;
+  const equivalentParallel = valVesNum > 0 ? (valVesNum / parallelRateForActive) : 0;
+  const diffEquivalent = Math.abs(equivalentBcv - equivalentParallel);
 
   return (
     <div className="bg-white dark:bg-zinc-950/80 dark:backdrop-blur-md border border-zinc-100 dark:border-zinc-900/80 rounded-3xl p-6 md:p-8 shadow-sm">
@@ -99,7 +113,7 @@ export default function Calculator({ rates }: CalculatorProps) {
             Conversor Inteligente
           </h2>
           <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">
-            Convierte al instante seleccionando la moneda y la tasa que desees.
+            Convierte al instante seleccionando la moneda y la tasa que desees. ¡Ahora puedes fijar bolívares para comparar!
           </p>
         </div>
       </div>
@@ -207,11 +221,17 @@ export default function Calculator({ rates }: CalculatorProps) {
 
         {/* VES Input */}
         <div className="space-y-2">
-          <label className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-            Bolívares (VES)
+          <label className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 flex justify-between items-center">
+            <span>Bolívares (VES)</span>
+            {lockVes && (
+              <span className="text-[9px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/40 px-2 py-0.5 rounded-md flex items-center gap-1">
+                <Lock size={10} />
+                Monto Fijado
+              </span>
+            )}
           </label>
           <div className="relative flex items-center">
-            <div className="absolute left-4 text-zinc-400 pointer-events-none font-semibold text-xs">
+            <div className={`absolute left-4 pointer-events-none font-semibold text-xs ${lockVes ? 'text-indigo-600 dark:text-indigo-400' : 'text-zinc-400'}`}>
               Bs
             </div>
             <input
@@ -219,9 +239,25 @@ export default function Calculator({ rates }: CalculatorProps) {
               placeholder="0.00"
               value={vesVal}
               onChange={(e) => handleVesChange(e.target.value)}
-              className="w-full bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-100 dark:border-zinc-800/80 rounded-2xl py-3.5 pl-11 pr-12 text-lg font-display font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 dark:focus:border-indigo-400 text-zinc-900 dark:text-zinc-100 placeholder-zinc-300 dark:placeholder-zinc-600 transition-all"
+              className={`w-full bg-zinc-50 dark:bg-zinc-800/50 border rounded-2xl py-3.5 pl-11 pr-20 text-lg font-display font-semibold focus:outline-none focus:ring-2 text-zinc-900 dark:text-zinc-100 placeholder-zinc-300 dark:placeholder-zinc-600 transition-all ${
+                lockVes 
+                  ? "border-indigo-500 dark:border-indigo-400 ring-2 ring-indigo-500/10" 
+                  : "border-zinc-100 dark:border-zinc-800/80 focus:ring-indigo-500/20 focus:border-indigo-500 dark:focus:border-indigo-400"
+              }`}
             />
-            <div className="absolute right-3 flex items-center gap-1">
+            <div className="absolute right-3 flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setLockVes(!lockVes)}
+                className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+                  lockVes 
+                    ? "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400" 
+                    : "text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
+                }`}
+                title={lockVes ? "Desbloquear Bolívares" : "Fijar Bolívares"}
+              >
+                {lockVes ? <Lock size={16} /> : <Unlock size={16} />}
+              </button>
               <button
                 type="button"
                 onClick={() => copyToClipboard(vesVal, "ves")}
@@ -234,6 +270,81 @@ export default function Calculator({ rates }: CalculatorProps) {
           </div>
         </div>
       </div>
+
+      {/* Comparison analysis card */}
+      {valVesNum > 0 && (
+        <div className="mt-6 p-4 rounded-2xl bg-zinc-50 dark:bg-zinc-900/40 border border-zinc-100 dark:border-zinc-800/80 space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+              <Info size={13} className="text-indigo-500" />
+              Análisis de Equivalencias (Mismo monto de Bolívares)
+            </span>
+            
+            {/* Toggle Lock */}
+            <button
+              type="button"
+              onClick={() => setLockVes(!lockVes)}
+              className={`px-3 py-1.5 rounded-xl text-[11px] font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                lockVes
+                  ? "bg-indigo-600 text-white shadow-sm shadow-indigo-500/10"
+                  : "bg-zinc-200/60 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200/80 dark:hover:bg-zinc-700"
+              }`}
+            >
+              {lockVes ? <Lock size={12} /> : <Unlock size={12} />}
+              <span>{lockVes ? "Bolívares Fijados" : "Fijar Bolívares"}</span>
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4 pt-1">
+            {/* BCV Equivalent Card */}
+            <div className={`p-3 rounded-xl border transition-all ${
+              rateType === 'bcv' 
+                ? 'bg-indigo-50/40 dark:bg-indigo-950/20 border-indigo-200/50 dark:border-indigo-900/40 ring-2 ring-indigo-500/10' 
+                : 'bg-white dark:bg-zinc-900 border-zinc-100 dark:border-zinc-800/60'
+            }`}>
+              <div className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">
+                Equivalente BCV
+              </div>
+              <div className="text-lg font-display font-extrabold text-zinc-900 dark:text-zinc-50 mt-1">
+                {selectedCurrency === "usd" ? "$" : "€"}{equivalentBcv.toFixed(2)}
+              </div>
+              <div className="text-[10px] text-zinc-500 dark:text-zinc-400 mt-0.5">
+                Tasa: {bcvRateForActive.toFixed(2)} Bs.
+              </div>
+            </div>
+
+            {/* Parallel Equivalent Card */}
+            <div className={`p-3 rounded-xl border transition-all ${
+              rateType === 'parallel' 
+                ? 'bg-indigo-50/40 dark:bg-indigo-950/20 border-indigo-200/50 dark:border-indigo-900/40 ring-2 ring-indigo-500/10' 
+                : 'bg-white dark:bg-zinc-900 border-zinc-100 dark:border-zinc-800/60'
+            }`}>
+              <div className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">
+                Equivalente Binance
+              </div>
+              <div className="text-lg font-display font-extrabold text-zinc-900 dark:text-zinc-50 mt-1">
+                {selectedCurrency === "usd" ? "$" : "€"}{equivalentParallel.toFixed(2)}
+              </div>
+              <div className="text-[10px] text-zinc-500 dark:text-zinc-400 mt-0.5">
+                Tasa: {parallelRateForActive.toFixed(2)} Bs.
+              </div>
+            </div>
+          </div>
+
+          <div className="text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400 pt-1 flex items-center justify-between border-t border-zinc-100/50 dark:border-zinc-800/40">
+            <span>Diferencia cambiaria de divisa:</span>
+            <span className="font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 px-2 py-0.5 rounded">
+              +{selectedCurrency === "usd" ? "$" : "€"}{diffEquivalent.toFixed(2)} {selectedCurrency === "usd" ? "USD" : "EUR"}
+            </span>
+          </div>
+          
+          {lockVes && (
+            <div className="text-[10px] text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/20 px-3 py-1.5 rounded-lg border border-indigo-100/30 dark:border-indigo-900/30 font-medium leading-relaxed">
+              🔒 El monto de <strong>{parseFloat(vesVal).toLocaleString('es-VE', {minimumFractionDigits: 2})} Bs.</strong> está fijado. Si cambias la tasa cambiaria arriba, el valor en Bolívares se mantendrá estable y se recalculará la moneda extranjera automáticamente.
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Helper Shortcut Controls */}
       <div className="space-y-4 mt-8 pt-6 border-t border-zinc-100 dark:border-zinc-800/60">
