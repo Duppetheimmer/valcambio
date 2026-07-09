@@ -10,6 +10,8 @@ interface CurrencyCardProps {
   isOfficial: boolean;
   rateType: "USD" | "EUR";
   seed: number;
+  isActive?: boolean;
+  onClick?: () => void;
 }
 
 export default function CurrencyCard({
@@ -20,7 +22,9 @@ export default function CurrencyCard({
   source,
   isOfficial,
   rateType,
-  seed
+  seed,
+  isActive = false,
+  onClick
 }: CurrencyCardProps) {
   // Generate a beautiful, stable simulated 7-day sparkline
   const generateSparklineData = (baseRate: number, s: number) => {
@@ -59,7 +63,12 @@ export default function CurrencyCard({
   return (
     <div 
       id={id}
-      className="relative bg-white dark:bg-zinc-950/80 dark:backdrop-blur-md border border-zinc-100 dark:border-zinc-900/80 rounded-2xl p-5 shadow-xs hover:shadow-md transition-all duration-300 group"
+      onClick={onClick}
+      className={`relative bg-white dark:bg-zinc-950/80 dark:backdrop-blur-md border rounded-2xl p-5 shadow-xs transition-all duration-300 cursor-pointer select-none ${
+        isActive
+          ? "border-indigo-500 dark:border-indigo-400 ring-3 ring-indigo-500/15 bg-indigo-50/5 dark:bg-indigo-950/20 shadow-md"
+          : "border-zinc-100 dark:border-zinc-900/80 hover:border-zinc-200 dark:hover:border-zinc-800 hover:shadow-md"
+      }`}
     >
       {/* Official vs Parallel Ribbon */}
       <span className={`absolute top-4 right-4 text-[10px] font-semibold px-2 py-0.5 rounded-full uppercase tracking-wider ${
@@ -88,20 +97,25 @@ export default function CurrencyCard({
           </div>
 
           {/* Trend Indicator */}
-          <div className="flex items-center gap-1.5 mt-2.5">
-            {isUp ? (
-              <span className="flex items-center gap-0.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/20 px-1.5 py-0.5 rounded-md">
-                <TrendingUp size={12} />
-                +{percentChange.toFixed(2)}%
+          <div className="flex items-center justify-between gap-1.5 mt-2.5">
+            <div className="flex items-center gap-1.5">
+              {isUp ? (
+                <span className="flex items-center gap-0.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/20 px-1.5 py-0.5 rounded-md">
+                  <TrendingUp size={12} />
+                  +{percentChange.toFixed(2)}%
+                </span>
+              ) : (
+                <span className="flex items-center gap-0.5 text-xs font-semibold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/20 px-1.5 py-0.5 rounded-md">
+                  <TrendingDown size={12} />
+                  {percentChange.toFixed(2)}%
+                </span>
+              )}
+              <span className="text-[11px] text-zinc-400 dark:text-zinc-500">
+                últimas 24h
               </span>
-            ) : (
-              <span className="flex items-center gap-0.5 text-xs font-semibold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/20 px-1.5 py-0.5 rounded-md">
-                <TrendingDown size={12} />
-                {percentChange.toFixed(2)}%
-              </span>
-            )}
-            <span className="text-[11px] text-zinc-400 dark:text-zinc-500">
-              últimas 24h
+            </div>
+            <span className="text-[10px] text-zinc-400 dark:text-zinc-500 font-semibold font-mono bg-zinc-50 dark:bg-zinc-900/60 px-1.5 py-0.5 rounded-md border border-zinc-100/50 dark:border-zinc-800/40">
+              Previo: Bs. {sparklineData[sparklineData.length - 2].toLocaleString("es-VE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </span>
           </div>
         </div>

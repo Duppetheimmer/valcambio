@@ -6,6 +6,9 @@ import { GoogleGenAI, Type } from "@google/genai";
 
 dotenv.config();
 
+const SUPABASE_URL = process.env.SUPABASE_URL || "";
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || "";
+
 const app = express();
 const PORT = 3000;
 
@@ -360,6 +363,91 @@ Return a JSON object that matches this exact schema structure:
   }
 }
 
+// Save rates to Supabase if there's any change
+async function saveRatesToSupabase(rates: RatesData) {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    console.log("Supabase not configured. Skipping saving to Supabase.");
+    return;
+  }
+
+  try {
+    console.log("Saving rates to Supabase...");
+    const response = await fetch(`${SUPABASE_URL}/rest/v1/rates_history`, {
+      method: "POST",
+      headers: {
+        "apikey": SUPABASE_ANON_KEY,
+        "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+        "Content-Type": "application/json",
+        "Prefer": "return=minimal"
+      },
+      body: JSON.stringify({
+        usd_bcv: rates.usd_bcv,
+        usd_parallel: rates.usd_parallel,
+        eur_bcv: rates.eur_bcv,
+        eur_parallel: rates.eur_parallel
+      })
+    });
+
+    if (!response.ok) {
+      console.warn("Failed to save rates to Supabase. HTTP status:", response.status);
+    } else {
+      console.log("Successfully saved exchange rates to Supabase!");
+    }
+  } catch (error) {
+    console.error("Error saving rates to Supabase:", error);
+  }
+}
+
+// Generate realistic simulated history ending today
+function generateSimulatedHistory(range: string) {
+  const history = [];
+  const today = new Date();
+  
+  // Base rates as of Jan 1, 2026
+  const base_usd_bcv = 36.50;
+  const base_usd_parallel = 43.80;
+
+  let points = 30;
+  let intervalMs = 24 * 60 * 60 * 1000; // default 1 day
+
+  if (range === "24h") {
+    points = 24;
+    intervalMs = 60 * 60 * 1000; // 1 hour
+  } else if (range === "7d") {
+    points = 7;
+    intervalMs = 24 * 60 * 60 * 1000; // 1 day
+  } else {
+    points = 30;
+    intervalMs = 24 * 60 * 60 * 1000; // 1 day
+  }
+
+  const baseDate = new Date("2026-01-01").getTime();
+
+  for (let i = points - 1; i >= 0; i--) {
+    const d = new Date(today.getTime() - i * intervalMs);
+    const diffDays = Math.floor((d.getTime() - baseDate) / (1000 * 60 * 60 * 24)) || 190;
+    
+    // Simulate realistic historical prices with a bit of hourly/daily noise
+    const hourFactor = range === "24h" ? Math.sin(d.getHours() * 0.2) * 0.05 : 0;
+    
+    const usd_bcv = parseFloat((base_usd_bcv + diffDays * 0.0045 + Math.sin(diffDays * 0.08) * 0.15 + hourFactor).toFixed(2));
+    const usd_parallel = parseFloat((base_usd_parallel + diffDays * 0.0068 + Math.sin(diffDays * 0.09) * 0.22 + hourFactor * 1.5).toFixed(2));
+    
+    const eur_bcv = parseFloat((usd_bcv * 1.082).toFixed(2));
+    const eur_parallel = parseFloat((usd_parallel * 1.085).toFixed(2));
+
+    history.push({
+      created_at: d.toISOString(),
+      usd_bcv,
+      usd_parallel,
+      eur_bcv,
+      eur_parallel
+    });
+  }
+
+  return history;
+}
+
 // REST API endpoint to get rates
 app.get("/api/rates", async (req, res) => {
   const forceRefresh = req.query.refresh === "true";
@@ -368,11 +456,93 @@ app.get("/api/rates", async (req, res) => {
   if (!cachedRates || forceRefresh || (now - lastCacheTime > CACHE_DURATION)) {
     console.log("Fetching fresh exchange rates...");
     const rates = await fetchRealtimeRates();
+    
+    // If rates fetched successfully, write to Supabase to keep detailed history logs
+    if (rates) {
+      await saveRatesToSupabase(rates);
+    }
+
     cachedRates = rates;
     lastCacheTime = now;
   }
 
   res.json(cachedRates);
+});
+
+// REST API endpoint to get Supabase connection status
+app.get("/api/supabase-status", async (req, res) => {
+  const isConfigured = !!(SUPABASE_URL && SUPABASE_ANON_KEY);
+  let isHealthy = false;
+  let errorMessage = "";
+
+  if (isConfigured) {
+    try {
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/rates_history?limit=1`, {
+        headers: {
+          "apikey": SUPABASE_ANON_KEY,
+          "Authorization": `Bearer ${SUPABASE_ANON_KEY}`
+        }
+      });
+      if (response.ok) {
+        isHealthy = true;
+      } else {
+        errorMessage = `HTTP Error ${response.status}: ${response.statusText}`;
+      }
+    } catch (error: any) {
+      errorMessage = error.message || String(error);
+    }
+  }
+
+  res.json({
+    configured: isConfigured,
+    healthy: isHealthy,
+    error: errorMessage,
+    url: SUPABASE_URL ? `${SUPABASE_URL.substring(0, 15)}...` : null
+  });
+});
+
+// REST API endpoint to get history
+app.get("/api/history", async (req, res) => {
+  const range = (req.query.range as string) || "30d";
+  let limit = 120;
+  
+  if (range === "24h") {
+    limit = 24;
+  } else if (range === "7d") {
+    limit = 50; // allows multiple entries per day or a robust set
+  } else {
+    limit = 120; // up to ~4 months of daily/periodic entries
+  }
+
+  if (SUPABASE_URL && SUPABASE_ANON_KEY) {
+    try {
+      console.log(`Fetching rates history from Supabase with range ${range} (limit ${limit})...`);
+      // Query latest records descending, so we always get the most recent data
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/rates_history?select=*&order=created_at.desc&limit=${limit}`, {
+        headers: {
+          "apikey": SUPABASE_ANON_KEY,
+          "Authorization": `Bearer ${SUPABASE_ANON_KEY}`
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (Array.isArray(data) && data.length > 0) {
+          // Reverse back to ascending chronological order for the frontend chart
+          return res.json(data.reverse());
+        }
+        console.log("Supabase history is empty. Utilizing simulated fallback history.");
+      } else {
+        console.warn("Supabase history fetch responded with error status:", response.status);
+      }
+    } catch (error) {
+      console.error("Error fetching rates history from Supabase:", error);
+    }
+  }
+
+  // Simulated history as default fallback
+  const simulatedHistory = generateSimulatedHistory(range);
+  res.json(simulatedHistory);
 });
 
 // Start the server with Vite integration

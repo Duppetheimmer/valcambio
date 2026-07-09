@@ -20,5 +20,13 @@ export interface RatesData {
   is_fallback?: boolean;
 }
 
+export interface HistoryEntry {
+  created_at: string;
+  usd_bcv: number;
+  usd_parallel: number;
+  eur_bcv: number;
+  eur_parallel: number;
+}
+
 export type ActiveInputCurrency = "USD" | "EUR" | "VES";
 export type RateType = "bcv" | "parallel";

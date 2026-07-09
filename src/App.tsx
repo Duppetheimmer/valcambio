@@ -15,12 +15,14 @@ import {
   ChevronRight,
   TrendingDown,
   Percent,
-  Shield
+  Shield,
+  Scale
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { RatesData } from "./types";
 import CurrencyCard from "./components/CurrencyCard";
 import Calculator from "./components/Calculator";
+import HistoryChart from "./components/HistoryChart";
 
 // Client-side fallback dynamic rates generator (used when backend is unavailable, e.g., on static hostings like Vercel)
 function getClientDynamicFallbackRates(): RatesData {
@@ -219,6 +221,8 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<"calculadoras" | "tendencia" | "noticias">("calculadoras");
   const [selectedNews, setSelectedNews] = useState<any | null>(null);
   const [showPrivacyModal, setShowPrivacyModal] = useState<boolean>(false);
+  const [showDisclaimerModal, setShowDisclaimerModal] = useState<boolean>(false);
+  const [selectedRateForHistory, setSelectedRateForHistory] = useState<"usd-bcv" | "usd-parallel" | "eur-bcv" | "eur-parallel">("usd-bcv");
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("theme");
@@ -553,6 +557,8 @@ export default function App() {
                         isOfficial={true}
                         rateType="USD"
                         seed={1}
+                        isActive={selectedRateForHistory === "usd-bcv"}
+                        onClick={() => setSelectedRateForHistory("usd-bcv")}
                       />
                       <CurrencyCard
                         id="usd-parallel"
@@ -563,6 +569,8 @@ export default function App() {
                         isOfficial={false}
                         rateType="USD"
                         seed={2}
+                        isActive={selectedRateForHistory === "usd-parallel"}
+                        onClick={() => setSelectedRateForHistory("usd-parallel")}
                       />
                       <CurrencyCard
                         id="eur-bcv"
@@ -573,6 +581,8 @@ export default function App() {
                         isOfficial={true}
                         rateType="EUR"
                         seed={3}
+                        isActive={selectedRateForHistory === "eur-bcv"}
+                        onClick={() => setSelectedRateForHistory("eur-bcv")}
                       />
                       <CurrencyCard
                         id="eur-parallel"
@@ -583,8 +593,13 @@ export default function App() {
                         isOfficial={false}
                         rateType="EUR"
                         seed={4}
+                        isActive={selectedRateForHistory === "eur-parallel"}
+                        onClick={() => setSelectedRateForHistory("eur-parallel")}
                       />
                     </div>
+
+                    {/* Historical Online Price Chart */}
+                    <HistoryChart selectedRateId={selectedRateForHistory} />
 
                     <div className="bg-gradient-to-br from-indigo-900/5 via-indigo-950/5 to-transparent dark:from-indigo-950/20 dark:via-zinc-950 dark:to-transparent border border-indigo-100/50 dark:border-indigo-900/30 rounded-3xl p-6 md:p-8 flex flex-col justify-between">
                       <div>
@@ -823,7 +838,7 @@ export default function App() {
           Los tipos de cambio presentados aquí son recopilados de fuentes de acceso público en internet y no representan una cotización oficial regulada por nosotros. 
           No somos responsables de transacciones o decisiones financieras individuales tomadas a partir de estos datos de referencia.
         </p>
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-3 text-xs text-zinc-400 dark:text-zinc-500 font-medium">
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-4 text-xs text-zinc-400 dark:text-zinc-500 font-medium">
           <span>Vango Al Cambio © {new Date().getFullYear()}</span>
           <span className="hidden sm:inline">•</span>
           <span>Desarrollado con propósitos educativos y de asistencia financiera</span>
@@ -835,10 +850,18 @@ export default function App() {
             <Shield size={12} />
             Política de Privacidad
           </button>
+          <span className="hidden sm:inline">•</span>
+          <button
+            onClick={() => setShowDisclaimerModal(true)}
+            className="text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 cursor-pointer font-semibold"
+          >
+            <Scale size={12} />
+            Descarga de Responsabilidad Legal
+          </button>
         </div>
       </footer>
 
-      {/* Privacy Policy Modal */}
+      {/* Privacy Policy and Disclaimer Modals */}
       <AnimatePresence>
         {showPrivacyModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -932,6 +955,104 @@ export default function App() {
                   className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition-all cursor-pointer shadow-sm shadow-indigo-500/10"
                 >
                   Entendido, Cerrar
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {showDisclaimerModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowDisclaimerModal(false)}
+              className="absolute inset-0 bg-zinc-950/75 backdrop-blur-xs"
+            />
+
+            {/* Modal Card */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              transition={{ type: "spring", duration: 0.35 }}
+              className="relative w-full max-w-lg bg-white dark:bg-zinc-950 border border-zinc-100 dark:border-zinc-900 rounded-3xl p-6 md:p-8 shadow-2xl max-h-[85vh] overflow-y-auto"
+            >
+              <div className="flex items-center justify-between gap-4 mb-4 pb-3 border-b border-zinc-100 dark:border-zinc-800/60">
+                <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider bg-indigo-50 dark:bg-indigo-950/40 px-2.5 py-1 rounded-md flex items-center gap-1.5">
+                  <Scale size={13} />
+                  Descarga de Responsabilidad
+                </span>
+                <button
+                  onClick={() => setShowDisclaimerModal(false)}
+                  className="p-1.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-all cursor-pointer"
+                >
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              <div className="space-y-4 text-left">
+                <h3 className="text-lg font-display font-extrabold text-zinc-900 dark:text-zinc-50 leading-snug">
+                  Descarga de Responsabilidad Legal (Disclaimer)
+                </h3>
+
+                <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
+                  Por favor, lea atentamente la siguiente declaración de limitación y descarga de responsabilidad relacionada con el uso de <strong>Vango Al Cambio</strong>:
+                </p>
+
+                <div className="space-y-3.5 mt-4">
+                  <div className="bg-zinc-50 dark:bg-zinc-900/40 rounded-xl p-3.5 border border-zinc-100/50 dark:border-zinc-900/80">
+                    <h4 className="text-xs font-bold text-zinc-800 dark:text-zinc-200 uppercase tracking-wide mb-1">
+                      1. Carácter Únicamente Informativo
+                    </h4>
+                    <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                      La información, tasas de cambio de divisas (USD/EUR a VES), indicadores y análisis de equivalencias mostrados en esta aplicación web se ofrecen <strong>exclusivamente con fines informativos, de referencia y educativos</strong>. No constituyen asesoramiento financiero, recomendación de inversión ni oferta formal de comercialización de divisas.
+                    </p>
+                  </div>
+
+                  <div className="bg-zinc-50 dark:bg-zinc-900/40 rounded-xl p-3.5 border border-zinc-100/50 dark:border-zinc-900/80">
+                    <h4 className="text-xs font-bold text-zinc-800 dark:text-zinc-200 uppercase tracking-wide mb-1">
+                      2. Fuentes Externas de Información
+                    </h4>
+                    <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                      Los datos de tasas son recopilados directamente en tiempo real desde plataformas públicas y canales de información externos (incluyendo el Banco Central de Venezuela e índices de mercado alternativo como Binance P2P). Aunque realizamos esfuerzos continuos por mantener la información actualizada, <strong>no garantizamos la precisión absoluta, veracidad o disponibilidad de dichas fuentes externas</strong>.
+                    </p>
+                  </div>
+
+                  <div className="bg-zinc-50 dark:bg-zinc-900/40 rounded-xl p-3.5 border border-zinc-100/50 dark:border-zinc-900/80">
+                    <h4 className="text-xs font-bold text-zinc-800 dark:text-zinc-200 uppercase tracking-wide mb-1">
+                      3. Exclusión de Responsabilidad
+                    </h4>
+                    <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                      Bajo ninguna circunstancia, <strong>Vango Al Cambio</strong>, sus desarrolladores o afiliados serán responsables de pérdidas financieras directas, indirectas, incidentales o de cualquier otro tipo derivadas del uso, mal uso, o la imposibilidad de uso de esta plataforma, así como de transacciones mercantiles, acuerdos de compra-venta o decisiones comerciales llevadas a cabo por el usuario.
+                    </p>
+                  </div>
+
+                  <div className="bg-zinc-50 dark:bg-zinc-900/40 rounded-xl p-3.5 border border-zinc-100/50 dark:border-zinc-900/80">
+                    <h4 className="text-xs font-bold text-zinc-800 dark:text-zinc-200 uppercase tracking-wide mb-1">
+                      4. Legalidad y Publicidad
+                    </h4>
+                    <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                      El uso de esta plataforma es legal puesto que se limita a compilar y presentar de forma estructurada datos públicos de libre acceso en internet de conformidad con el derecho de información. La eventual presencia de anuncios de publicidad en el sitio tiene como único fin solventar los costes operativos de infraestructura de servidores y mantenimiento técnico del servicio gratuito.
+                    </p>
+                  </div>
+                </div>
+
+                <p className="text-[10px] text-zinc-400 dark:text-zinc-500 italic mt-2">
+                  Al navegar o realizar conversiones en Vango Al Cambio, usted acepta expresamente los términos descritos en este aviso legal.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-3 mt-6 pt-4 border-t border-zinc-100 dark:border-zinc-800/60">
+                <button
+                  onClick={() => setShowDisclaimerModal(false)}
+                  className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition-all cursor-pointer shadow-sm shadow-indigo-500/10"
+                >
+                  Aceptar y Cerrar
                 </button>
               </div>
             </motion.div>
