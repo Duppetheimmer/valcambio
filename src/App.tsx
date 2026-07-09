@@ -37,12 +37,21 @@ function getClientDynamicFallbackRates(): RatesData {
   const eur_bcv = parseFloat((usd_bcv * 1.082).toFixed(2));
   const eur_parallel = parseFloat((usd_parallel * 1.085).toFixed(2));
 
-  const todayStr = today.toLocaleDateString('es-VE', { 
-    year: 'numeric', 
-    month: 'long', 
-    day: 'numeric',
-    timeZone: 'America/Caracas'
-  });
+  let todayStr = "";
+  try {
+    todayStr = today.toLocaleDateString('es-VE', { 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric',
+      timeZone: 'America/Caracas'
+    });
+  } catch (e) {
+    todayStr = today.toLocaleDateString('es-VE', { 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric'
+    });
+  }
 
   return {
     usd_bcv,
@@ -150,12 +159,21 @@ async function fetchDirectApiRatesClient(): Promise<RatesData | null> {
       throw new Error("Could not parse essential exchange rate keys from AlCambio live API.");
     }
 
-    const todayStr = new Date().toLocaleDateString('es-VE', { 
-      year: 'numeric', 
-      month: 'long', 
-      day: 'numeric',
-      timeZone: 'America/Caracas'
-    });
+    let todayStr = "";
+    try {
+      todayStr = new Date().toLocaleDateString('es-VE', { 
+        year: 'numeric', 
+        month: 'long', 
+        day: 'numeric',
+        timeZone: 'America/Caracas'
+      });
+    } catch (e) {
+      todayStr = new Date().toLocaleDateString('es-VE', { 
+        year: 'numeric', 
+        month: 'long', 
+        day: 'numeric'
+      });
+    }
 
     const gapPercent = ((usd_parallel - usd_bcv) / usd_bcv) * 100;
 
@@ -227,14 +245,30 @@ export default function App() {
     const updateTime = () => {
       const now = new Date();
       // Format VET timezone
-      const formatter = new Intl.DateTimeFormat("es-VE", {
-        timeZone: "America/Caracas",
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-        hour12: true
-      });
-      setCurrentTime(formatter.format(now));
+      let formatted = "";
+      try {
+        const formatter = new Intl.DateTimeFormat("es-VE", {
+          timeZone: "America/Caracas",
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+          hour12: true
+        });
+        formatted = formatter.format(now);
+      } catch (e) {
+        try {
+          const formatter = new Intl.DateTimeFormat("es-VE", {
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+            hour12: true
+          });
+          formatted = formatter.format(now);
+        } catch (e2) {
+          formatted = now.toLocaleTimeString();
+        }
+      }
+      setCurrentTime(formatted);
     };
     
     updateTime();

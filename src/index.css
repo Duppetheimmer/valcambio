@@ -6,3 +6,6 @@
   --font-display: "Outfit", sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
+
+@variant dark (&:where(.dark, .dark *));
+
