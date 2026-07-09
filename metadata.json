@@ -1,0 +1,6 @@
+{
+  "name": "Vango Al Cambio",
+  "description": "Calculadora de divisas en tiempo real para Venezuela con tasas del BCV, mercado paralelo y convertidor rápido.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
