@@ -1,57 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { HistoryEntry } from "../types";
-import { Calendar, TrendingUp, TrendingDown, Clock, AlertCircle, RefreshCw } from "lucide-react";
+import { Calendar, TrendingUp, TrendingDown, Clock, AlertCircle, RefreshCw, Database } from "lucide-react";
 import { motion } from "motion/react";
+import { fetchHistoryDirect, seedInitialDataDirect } from "../lib/supabaseClient";
 
 interface HistoryChartProps {
   selectedRateId: "usd-bcv" | "usd-parallel" | "eur-bcv" | "eur-parallel";
-}
-
-// Helper function to generate client-side simulated history as a high-reliability fallback
-function generateClientSimulatedHistory(range: "24h" | "7d" | "30d"): HistoryEntry[] {
-  const history: HistoryEntry[] = [];
-  const today = new Date();
-  
-  const base_usd_bcv = 36.50;
-  const base_usd_parallel = 43.80;
-
-  let points = 30;
-  let intervalMs = 24 * 60 * 60 * 1000;
-
-  if (range === "24h") {
-    points = 24;
-    intervalMs = 60 * 60 * 1000;
-  } else if (range === "7d") {
-    points = 7;
-    intervalMs = 24 * 60 * 60 * 1000;
-  } else {
-    points = 30;
-    intervalMs = 24 * 60 * 60 * 1000;
-  }
-
-  const baseDate = new Date("2026-01-01").getTime();
-
-  for (let i = points - 1; i >= 0; i--) {
-    const d = new Date(today.getTime() - i * intervalMs);
-    const diffDays = Math.floor((d.getTime() - baseDate) / (1000 * 60 * 60 * 24)) || 190;
-    const hourFactor = range === "24h" ? Math.sin(d.getHours() * 0.2) * 0.05 : 0;
-    
-    const usd_bcv = parseFloat((base_usd_bcv + diffDays * 0.0045 + Math.sin(diffDays * 0.08) * 0.15 + hourFactor).toFixed(2));
-    const usd_parallel = parseFloat((base_usd_parallel + diffDays * 0.0068 + Math.sin(diffDays * 0.09) * 0.22 + hourFactor * 1.5).toFixed(2));
-    
-    const eur_bcv = parseFloat((usd_bcv * 1.082).toFixed(2));
-    const eur_parallel = parseFloat((usd_parallel * 1.085).toFixed(2));
-    
-    history.push({
-      created_at: d.toISOString(),
-      usd_bcv,
-      usd_parallel,
-      eur_bcv,
-      eur_parallel
-    });
-  }
-
-  return history;
 }
 
 export default function HistoryChart({ selectedRateId }: HistoryChartProps) {
@@ -62,6 +16,22 @@ export default function HistoryChart({ selectedRateId }: HistoryChartProps) {
   const [hoverPos, setHoverPos] = useState<{ x: number; y: number } | null>(null);
   const [supabaseStatus, setSupabaseStatus] = useState<{ configured: boolean; healthy: boolean; error?: string; url?: string | null } | null>(null);
   const [timeRange, setTimeRange] = useState<"24h" | "7d" | "30d">("30d");
+  const [copiedSql, setCopiedSql] = useState<boolean>(false);
+  const [seeding, setSeeding] = useState<boolean>(false);
+
+  const sqlCode = `-- Crear la tabla 'rates_history' si no existe
+CREATE TABLE IF NOT EXISTS rates_history (
+  id bigint PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+  created_at timestamp with time zone DEFAULT now() NOT NULL,
+  usd_bcv numeric NOT NULL,
+  usd_parallel numeric NOT NULL,
+  eur_bcv numeric NOT NULL,
+  eur_parallel numeric NOT NULL
+);
+
+-- Opción rápida y definitiva: Deshabilitar Row Level Security (RLS)
+-- Esto garantiza lectura/escritura pública instantánea sin políticas conflictivas
+ALTER TABLE rates_history DISABLE ROW LEVEL SECURITY;`;
 
   const fetchHistory = async (selectedRange?: "24h" | "7d" | "30d" | any) => {
     const range = (typeof selectedRange === "string" && ["24h", "7d", "30d"].includes(selectedRange))
@@ -72,39 +42,109 @@ export default function HistoryChart({ selectedRateId }: HistoryChartProps) {
       setLoading(true);
       setError(null);
       
-      // Fetch both history and status with specific range query
       const [historyRes, statusRes] = await Promise.all([
         fetch(`/api/history?range=${range}`),
         fetch("/api/supabase-status")
       ]);
 
       let historyData = [];
+      let backendSuccess = false;
+      let parsedErrorStr = "";
+
       if (historyRes.ok) {
-        historyData = await historyRes.json();
+        try {
+          const parsed = await historyRes.json();
+          if (parsed && parsed.warning === "empty") {
+            setError(parsed.details || parsed.error);
+            setHistory([]);
+            backendSuccess = true; // Still, handled custom empty state
+          } else if (Array.isArray(parsed)) {
+            historyData = parsed;
+            setHistory(historyData);
+            backendSuccess = true;
+          } else {
+            parsedErrorStr = "El formato de respuesta de historial no es válido.";
+          }
+        } catch (jsonErr) {
+          console.warn("No se pudo analizar la respuesta JSON del servidor backend. Probablemente un redireccionamiento estático en Vercel. Intentando consulta directa...");
+        }
       } else {
-        console.warn("Backend history fetch failed. Using local simulated fallback.");
-        historyData = generateClientSimulatedHistory(range);
+        try {
+          const errData = await historyRes.json();
+          parsedErrorStr = errData.details || errData.error || `Error del servidor (${historyRes.status})`;
+        } catch (_) {
+          parsedErrorStr = `Error HTTP ${historyRes.status}`;
+        }
       }
 
-      if (Array.isArray(historyData) && historyData.length > 0) {
-        setHistory(historyData);
-      } else {
-        console.warn("Format of history data is invalid or empty. Using local simulated fallback.");
-        setHistory(generateClientSimulatedHistory(range));
+      // Hybrid Fallback: If backend is not available (e.g. static hosting on Vercel) or failed,
+      // query the Supabase REST API directly from the browser!
+      if (!backendSuccess) {
+        console.log("Intentando conectarse a Supabase de manera directa desde el cliente...");
+        try {
+          const directData = await fetchHistoryDirect(range);
+          setHistory(directData);
+          setSupabaseStatus({ configured: true, healthy: true, url: "Conexión Directa" });
+          setError(null);
+        } catch (directErr: any) {
+          console.error("La consulta directa de Supabase falló también:", directErr);
+          setError(directErr.message || parsedErrorStr || "No se pudo conectar con el historial.");
+          setHistory([]);
+        }
       }
 
       if (statusRes.ok) {
-        const statusData = await statusRes.json();
-        setSupabaseStatus(statusData);
+        try {
+          const statusData = await statusRes.json();
+          setSupabaseStatus(prev => {
+            if (prev?.url === "Conexión Directa") return prev;
+            return statusData;
+          });
+        } catch (_) {}
       } else {
-        setSupabaseStatus({ configured: false, healthy: false });
+        setSupabaseStatus(prev => {
+          if (prev?.url === "Conexión Directa") return prev;
+          return { configured: true, healthy: false };
+        });
       }
     } catch (err: any) {
-      console.error("Error loading historical prices, falling back to simulation:", err);
-      setHistory(generateClientSimulatedHistory(range));
-      setSupabaseStatus({ configured: false, healthy: false, error: err.message });
+      console.error("Error cargando historial de precios:", err);
+      // Attempt client-side direct query on network exception
+      try {
+        const directData = await fetchHistoryDirect(range);
+        setHistory(directData);
+        setSupabaseStatus({ configured: true, healthy: true, url: "Conexión Directa" });
+        setError(null);
+      } catch (directErr: any) {
+        setError(directErr.message || err.message || "Error de red al conectar con el servidor.");
+        setHistory([]);
+        setSupabaseStatus({ configured: false, healthy: false, error: err.message });
+      }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleCopySql = () => {
+    navigator.clipboard.writeText(sqlCode);
+    setCopiedSql(true);
+    setTimeout(() => setCopiedSql(false), 3000);
+  };
+
+  const handleSeed = async () => {
+    try {
+      setSeeding(true);
+      setError(null);
+      await seedInitialDataDirect();
+      // Wait a bit and refresh
+      setTimeout(() => {
+        fetchHistory(timeRange);
+      }, 1000);
+    } catch (err: any) {
+      console.error(err);
+      setError(`Error al sembrar datos: ${err.message}`);
+    } finally {
+      setSeeding(false);
     }
   };
 
@@ -122,19 +162,76 @@ export default function HistoryChart({ selectedRateId }: HistoryChartProps) {
   }
 
   if (history.length === 0) {
+    const isTableMissing = error?.toLowerCase().includes("relation") || error?.toLowerCase().includes("exist") || error?.toLowerCase().includes("404");
+    const isEmptyTable = error?.toLowerCase().includes("vacía") || error?.toLowerCase().includes("0 registros");
+
     return (
-      <div className="bg-white dark:bg-zinc-950/80 dark:backdrop-blur-md border border-zinc-100 dark:border-zinc-900/80 rounded-3xl p-6 md:p-8 shadow-xs flex flex-col items-center justify-center min-h-[350px] text-center space-y-3">
-        <AlertCircle size={28} className="text-rose-500" />
-        <p className="text-sm font-bold text-zinc-800 dark:text-zinc-200">No se pudo cargar el historial de precios</p>
-        <p className="text-xs text-zinc-400 dark:text-zinc-500 max-w-sm">
-          {error || "No hay registros disponibles en este momento."}
-        </p>
-        <button
-          onClick={() => fetchHistory(timeRange)}
-          className="text-xs font-bold text-indigo-600 dark:text-indigo-400 underline hover:text-indigo-700 cursor-pointer"
-        >
-          Reintentar conexión
-        </button>
+      <div className="bg-white dark:bg-zinc-950/80 dark:backdrop-blur-md border border-zinc-100 dark:border-zinc-900/80 rounded-3xl p-6 md:p-8 shadow-md flex flex-col items-center justify-center min-h-[350px] text-center space-y-4">
+        <AlertCircle size={32} className="text-rose-500 shrink-0" />
+        <div className="space-y-1.5 max-w-lg">
+          <p className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
+            {isEmptyTable ? "La tabla está lista pero vacía" : "Error de Conexión o Estructura en Supabase"}
+          </p>
+          <p className="text-xs text-zinc-500 dark:text-zinc-400 font-mono bg-zinc-50 dark:bg-zinc-900 p-2.5 rounded-lg border border-zinc-100 dark:border-zinc-800 break-all select-all">
+            {error || "No se recibieron datos del historial."}
+          </p>
+        </div>
+
+        {isTableMissing && (
+          <div className="text-left bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-100 dark:border-zinc-800 p-4 rounded-2xl max-w-2xl w-full space-y-3">
+            <div className="space-y-1">
+              <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wide">Guía de Solución</span>
+              <p className="text-xs text-zinc-600 dark:text-zinc-300">
+                Asegúrate de que la tabla <code className="px-1.5 py-0.5 bg-zinc-200 dark:bg-zinc-800 rounded font-bold text-rose-500 text-[11px]">rates_history</code> existe en Supabase y que RLS no esté bloqueando las consultas. Ejecuta el siguiente código limpio en la pestaña <span className="font-semibold">SQL Editor</span> de tu consola de Supabase:
+              </p>
+            </div>
+            
+            <div className="relative">
+              <pre className="text-[10px] font-mono text-zinc-700 dark:text-zinc-300 bg-zinc-100 dark:bg-zinc-950 p-3 rounded-xl border border-zinc-200/50 dark:border-zinc-800/80 overflow-x-auto max-h-[150px]">
+                {sqlCode}
+              </pre>
+              <button
+                onClick={handleCopySql}
+                className="absolute top-2 right-2 px-2 py-1 text-[9px] font-bold bg-zinc-900 dark:bg-zinc-800 text-white rounded-md hover:bg-zinc-800 active:scale-95 transition-all shadow-xs cursor-pointer"
+              >
+                {copiedSql ? "¡Copiado!" : "Copiar SQL"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {isEmptyTable && (
+          <div className="bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-100 dark:border-zinc-800 p-4 rounded-2xl max-w-md w-full text-left space-y-3">
+            <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wide flex items-center gap-1">
+              <Database size={12} /> Tabla detectada correctamente
+            </span>
+            <p className="text-xs text-zinc-600 dark:text-zinc-300 leading-relaxed">
+              La tabla <code className="px-1 py-0.5 bg-zinc-200 dark:bg-zinc-800 rounded font-bold text-emerald-600 dark:text-emerald-400 text-[11px]">rates_history</code> existe en tu base de datos pero no contiene datos históricos todavía. Puedes sembrar un conjunto completo de datos reales de demostración directamente ahora mismo:
+            </p>
+            <button
+              onClick={handleSeed}
+              disabled={seeding}
+              className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:pointer-events-none"
+            >
+              {seeding ? (
+                <>
+                  <RefreshCw size={14} className="animate-spin" /> Sembrando datos...
+                </>
+              ) : (
+                "Sembrar datos históricos de demostración (30 días)"
+              )}
+            </button>
+          </div>
+        )}
+
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => fetchHistory(timeRange)}
+            className="px-4 py-2 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-sm hover:shadow transition-all cursor-pointer"
+          >
+            Reintentar Conexión
+          </button>
+        </div>
       </div>
     );
   }
@@ -275,10 +372,10 @@ export default function HistoryChart({ selectedRateId }: HistoryChartProps) {
               <span className={`inline-flex items-center gap-1.5 text-[9px] px-1.5 py-0.5 rounded-md font-bold uppercase tracking-wide border ${
                 supabaseStatus.healthy 
                   ? "bg-emerald-50 text-emerald-700 border-emerald-100/50 dark:bg-emerald-950/20 dark:text-emerald-400 dark:border-emerald-900/30" 
-                  : "bg-amber-50 text-amber-700 border-amber-100/50 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-900/30"
+                  : "bg-rose-50 text-rose-700 border-rose-100/50 dark:bg-rose-950/20 dark:text-rose-400 dark:border-rose-900/30"
               }`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${supabaseStatus.healthy ? "bg-emerald-500" : "bg-amber-500 animate-pulse"}`} />
-                {supabaseStatus.healthy ? "Supabase Conectado" : "Datos Simulados (Local)"}
+                <span className={`w-1.5 h-1.5 rounded-full ${supabaseStatus.healthy ? "bg-emerald-500" : "bg-rose-500 animate-pulse"}`} />
+                {supabaseStatus.healthy ? "Supabase Conectado" : "Supabase Desconectado"}
               </span>
             )}
           </div>

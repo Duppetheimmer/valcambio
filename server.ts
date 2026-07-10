@@ -509,40 +509,63 @@ app.get("/api/history", async (req, res) => {
   if (range === "24h") {
     limit = 24;
   } else if (range === "7d") {
-    limit = 50; // allows multiple entries per day or a robust set
+    limit = 50;
   } else {
-    limit = 120; // up to ~4 months of daily/periodic entries
+    limit = 120;
   }
 
-  if (SUPABASE_URL && SUPABASE_ANON_KEY) {
-    try {
-      console.log(`Fetching rates history from Supabase with range ${range} (limit ${limit})...`);
-      // Query latest records descending, so we always get the most recent data
-      const response = await fetch(`${SUPABASE_URL}/rest/v1/rates_history?select=*&order=created_at.desc&limit=${limit}`, {
-        headers: {
-          "apikey": SUPABASE_ANON_KEY,
-          "Authorization": `Bearer ${SUPABASE_ANON_KEY}`
-        }
-      });
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    return res.status(400).json({
+      error: "Supabase no está configurado",
+      details: "Faltan las variables de entorno SUPABASE_URL o SUPABASE_ANON_KEY. Configúralas en tu panel de Vercel."
+    });
+  }
 
-      if (response.ok) {
-        const data = await response.json();
-        if (Array.isArray(data) && data.length > 0) {
+  try {
+    console.log(`Fetching rates history from Supabase with range ${range} (limit ${limit})...`);
+    const response = await fetch(`${SUPABASE_URL}/rest/v1/rates_history?select=*&order=created_at.desc&limit=${limit}`, {
+      headers: {
+        "apikey": SUPABASE_ANON_KEY,
+        "Authorization": `Bearer ${SUPABASE_ANON_KEY}`
+      }
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      if (Array.isArray(data)) {
+        if (data.length > 0) {
           // Reverse back to ascending chronological order for the frontend chart
           return res.json(data.reverse());
+        } else {
+          return res.status(200).json({
+            warning: "empty",
+            error: "La tabla 'rates_history' está vacía",
+            details: "La conexión con Supabase es correcta, pero no hay registros en la tabla. Agrega una nueva cotización para comenzar a ver el historial."
+          });
         }
-        console.log("Supabase history is empty. Utilizing simulated fallback history.");
-      } else {
-        console.warn("Supabase history fetch responded with error status:", response.status);
       }
-    } catch (error) {
-      console.error("Error fetching rates history from Supabase:", error);
-    }
-  }
+    } else {
+      const errorText = await response.text();
+      console.warn("Supabase history fetch responded with error status:", response.status, errorText);
+      let parsedError = errorText;
+      try {
+        const errJson = JSON.parse(errorText);
+        parsedError = errJson.message || errorText;
+      } catch (_) {}
 
-  // Simulated history as default fallback
-  const simulatedHistory = generateSimulatedHistory(range);
-  res.json(simulatedHistory);
+      return res.status(response.status).json({
+        error: `Supabase respondió con estado ${response.status}`,
+        details: parsedError,
+        code: response.status === 404 ? "TABLE_NOT_FOUND" : "DATABASE_ERROR"
+      });
+    }
+  } catch (error: any) {
+    console.error("Error fetching rates history from Supabase:", error);
+    return res.status(500).json({
+      error: "Error interno al conectar con Supabase",
+      details: error.message || String(error)
+    });
+  }
 });
 
 // Start the server with Vite integration
